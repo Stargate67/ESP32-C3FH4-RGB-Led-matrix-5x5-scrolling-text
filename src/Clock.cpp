@@ -8,10 +8,10 @@
 #include "font.h"
 #include "credentials.h"
 
-#define CHAR_WIDTH 5
-#define CHAR_HEIGHT 5
-#define LED_PIN 8
-#define LED_COUNT 25
+#define CHAR_WIDTH 8
+#define CHAR_HEIGHT 8
+#define LED_PIN 48
+#define LED_COUNT 64
 
 unsigned long currmillis = 0; //used in my function to find the current millis()
 unsigned long prevmillis = 0; //used to hold previous value of currmillis
