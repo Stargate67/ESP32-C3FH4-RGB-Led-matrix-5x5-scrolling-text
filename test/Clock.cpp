@@ -8,9 +8,9 @@
 #include "font.h"
 #include "credentials.h"
 
-#define CHAR_WIDTH 8
-#define CHAR_HEIGHT 8
-#define LED_PIN 48
+#define CHAR_WIDTH 5
+#define CHAR_HEIGHT 5
+#define LED_PIN 14
 #define LED_COUNT 64
 
 unsigned long currmillis = 0; //used in my function to find the current millis()
@@ -83,7 +83,7 @@ void DrawChar(uint32_t colour, char c, uint8_t brightness) {
     c1[3] = c1[4];
     c1[4] = font[c][w];
     
-    /* 
+     
     Serial.println(c); 
     Serial.println(c1[0], BIN); 
     Serial.println(c1[1], BIN); 
@@ -91,7 +91,7 @@ void DrawChar(uint32_t colour, char c, uint8_t brightness) {
     Serial.println(c1[3], BIN); 
     Serial.println(c1[4], BIN); 
     Serial.println("Next byte"); 
-  */
+  
     for (x = 0; x < CHAR_WIDTH; x++) {
       for (y = 0; y < CHAR_HEIGHT; y++) {
         if (c1[x] >> 2 & (1 << y)) {
@@ -272,16 +272,16 @@ void startWifi(){
     DisplayScrollingString(green, ".");
     //delay(500);
   }
-  //Serial.print("Wifi RSSI=");
+  Serial.print("Wifi RSSI=");
   //DisplayScrollingString(green, "Wifi RSSI=");
-  //Serial.println(WiFi.RSSI());
-  //long rssi = WiFi.RSSI();
+  Serial.println(WiFi.RSSI());
+  long rssi = WiFi.RSSI();
   //DisplayScrollingString(green, String(rssi));
-  //Serial.println("");
+  Serial.println("");
   //DisplayScrollingString(green, "Connected to ");
   //DisplayScrollingString(green, ssid);
   //DisplayScrollingString(green, "IP address: ");
-  //Serial.println(WiFi.localIP());
+  Serial.println(WiFi.localIP());
   //FadeString(green, WiFi.localIP().toString().substring(7,20));
   
   DisplayScrollingString(green, WiFi.localIP().toString(), 30);
@@ -340,7 +340,7 @@ void loop() {
     //FadeString(blue, String(timeinfo.tm_mday) + "/" + String(timeinfo.tm_mon+1)+ "/" + String(timeinfo.tm_year+1900) );
     DisplayScrollingString(blue, String(timeinfo.tm_mday) + "/" + String(timeinfo.tm_mon+1)+ "/" + String(timeinfo.tm_year+1900), 20 );
     //DisplayScrollingString(red, "Yves FUCHS", 100);
-    //Serial.println(String(timeinfo.tm_mday) + "/" + String(timeinfo.tm_mon+1)+ "/" + String(timeinfo.tm_year+1900));
+    Serial.println(String(timeinfo.tm_mday) + "/" + String(timeinfo.tm_mon+1)+ "/" + String(timeinfo.tm_year+1900));
     i = timeinfo.tm_min % 2;
   }
 }
