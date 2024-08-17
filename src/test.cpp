@@ -47,17 +47,19 @@ Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(8, 8, PIN,
 
 const uint16_t colors[] = { matrix.Color(255, 0, 0), matrix.Color(0, 255, 0), matrix.Color(0, 0, 255) };
 
-bool bSerialDebug = false;
 String sPrintToMatrix;
-unsigned long currmillis = 0; //used in my function to find the current millis()
+#define MATRIXSPEED 50
+#define FIFOSIZE 20
+#define SERDEBUG false
+
+unsigned long readMillis;
 unsigned long prevmillis = 0; //used to hold previous value of currmillis
 unsigned long prevmillis1 = 0; //used to hold previous value of currmillis
-int boolval = 0;    //used to control whether to write the brightness value to the led or not
 int timer = 0;     //used in the delay function, difference between currmillis and prevmillis
 int i;
 struct tm timeinfo;
 int  pixelPerChar = 6;
-int  maxDisplacement;
+int  maxDisplacement = 300;
 int iState = 0;
 String sPrintdate;
 String sPrintShortdate;
@@ -80,8 +82,8 @@ int aisVal = 0;
 WiFiClient client;
 ModbusIP mb;  //ModbusIP object
 //IPAddress MBremote(192, 168, 0, 105);  // Address of Modbus Slave device
-IPAddress MBremote(77,204,15,6);  // Address of Internet Box 
-const int START_REG = 12689;           // Starting holding register
+IPAddress MBremote(77, 204, 15, 6);   // Address of Internet Box 
+const int START_REG = 12689;       // Starting holding register
 const int NUM_REGS = 10;           // Number of holding registers to read
 const int INTERVAL = 5000;         // Interval between reads (in milliseconds)
 
@@ -90,8 +92,41 @@ uint8_t show = NUM_REGS;  // Counter for displaying values
 uint32_t LastModbusRequest = 0;  // Variable to track the last Modbus request time
 float rTempExt;
 
+struct strMessage {
+  char sTimeStp[20];
+  char sMess[50];
+} strMessages[FIFOSIZE];
 
-float smooth(float fInput) { /* function smooth */
+strMessage strMesFiFoOut;
+strMessage sLoad;
+byte FiFoPos;
+
+strMessage fnFiFoUnload (){
+  if (FiFoPos > 0) {
+    strMessage sMes = strMessages[FiFoPos-1];
+    strMessages[FiFoPos-1] = {0};
+    FiFoPos--;
+    if (FiFoPos < 0) FiFoPos = 0;
+    return sMes;
+  }
+  return {0};
+}
+
+byte fnFiFoLoad (strMessage sMes) {
+  if (FiFoPos < FIFOSIZE) {
+    // Décalage du FIFO en avant
+    for ( byte i = (FIFOSIZE-1); i > 0; i--) {
+      strMessages[i] = strMessages[i-1];
+    }
+    FiFoPos++;
+    if (FiFoPos > FIFOSIZE) FiFoPos = FIFOSIZE;
+    strMessages[0] = sMes;
+    return FiFoPos;
+  }
+  return 0;
+}
+
+float fnAverage(float fInput) { /* function fnAverage */
   //Perform average on sensor readings
   float average;
   // subtract the last reading:
@@ -122,19 +157,16 @@ float smooth(float fInput) { /* function smooth */
 void ReadModbus() {
   mb.task();
   if (mb.isConnected(MBremote)) {  
-    if (bSerialDebug) Serial.println(String(iState));
+    if (SERDEBUG) Serial.println(String(iState));
     switch (iState)
       {
       case 0:
       {
         // Read holding registers from Modbus Slave
         uint8_t transaction = mb.readHreg(MBremote, START_REG, MBresult, NUM_REGS, nullptr, 1);        
-        //if (mb.isTransaction(transaction)) {
-          prevmillis1 = millis();
-          iState = 10;
-        ///} else {
-        //  mb.disconnect(MBremote);
-        //}
+        prevmillis1 = millis();
+        iState = 10;
+
        } 
        break;
       case 10:
@@ -142,7 +174,6 @@ void ReadModbus() {
         // Wait for the transaction to complete
         if (millis() >= prevmillis1 + 50){ //Process MB client request each second
           prevmillis1 = millis();
-//          mb.task();
           iState = 20;
         }
       }
@@ -153,22 +184,32 @@ void ReadModbus() {
 
         rTmp = (MBresult[7] * 100.0 / 32764.0) - 50.0; // Mise a l'echelle
         rTempExt = round(rTmp * 100.0)/100.0;
-        //if (bSerialDebug) Serial.print("T.Ext. = ");
-        //if (bSerialDebug) Serial.println(rTempExt);
         sTempExt = "T.Ext:" + String(rTempExt) + " C";
         // Calcul la moyenne 
-        rAvgTempExt = round(smooth(rTempExt)*100.0)/100.0;
+        rAvgTempExt = round(fnAverage(rTempExt) * 100.0) / 100.0;
+
+        matrix.setTextColor(matrix.Color(50, 0, 100)); //RGB
+        if (rTempExt >= 26.0 ) {
+            matrix.setTextColor(matrix.Color(255, 100, 0)); //RGB
+        } else if (rTempExt >= 30.0){
+            matrix.setTextColor(matrix.Color(255, 0, 0)); //RGB
+        }
+
         sTrend = String(" =");
         if (rTempExt > rAvgTempExt) {
           sTrend = String(" Up");
         } else if (rTempExt < rAvgTempExt){
-          //sTrend = String(" Dn");
           sTrend = String(" Dn");
         }
 
-        if (bSerialDebug) { 
+        strcpy(sLoad.sTimeStp, sPrintClock.c_str());
+        strcpy(sLoad.sMess, (sTempExt + sTrend).c_str());
+        fnFiFoLoad(sLoad);
+
+        if (SERDEBUG) { 
           Serial.print("T.Ext. = ");
-          Serial.println(String(rTempExt));
+          Serial.println(String(sLoad.sMess));
+          Serial.println("Pos= " + String(FiFoPos));
           Serial.print("Avg T.Ext. = ");
           Serial.print(String(rAvgTempExt));
           Serial.println(sTrend);
@@ -177,7 +218,7 @@ void ReadModbus() {
         
         iState = 30;
         
-        if (bSerialDebug) {
+        if (SERDEBUG) {
         // Print holding register values
           Serial.println("Holding Register Values:");
           for (int i = 0; i < NUM_REGS; i++) {
@@ -207,8 +248,6 @@ void ReadModbus() {
   } else {
     // If not connected, try to connect
     mb.connect(MBremote);
-
-    //sTempExt = "ModBus Connecting to " + String(MBremote);
   }
 }
 
@@ -220,7 +259,7 @@ void timeloop (int interval){ // the delay function
 }
 
 void setTimezone(String timezone){
-  if (bSerialDebug) Serial.printf(" Setting Timezone to %s\n",timezone.c_str());
+  if (SERDEBUG) Serial.printf(" Setting Timezone to %s\n",timezone.c_str());
   setenv("TZ",timezone.c_str(),1);  //  Now adjust the TZ.  Clock settings are adjusted to show the new local time
   tzset();
 }
@@ -228,13 +267,13 @@ void setTimezone(String timezone){
 void initTime(String timezone){
   struct tm timeinfo;
 
-  if (bSerialDebug) Serial.println("Setting up time");
+  if (SERDEBUG) Serial.println("Setting up time");
   configTime(0, 0, "pool.ntp.org");    // First connect to NTP server, with 0 TZ offset
   if (!getLocalTime(&timeinfo)) {
-    if (bSerialDebug) Serial.println(" Failed to obtain time");
+    if (SERDEBUG) Serial.println(" Failed to obtain time");
     return;
   }
-  if (bSerialDebug) Serial.println(" Got the time from NTP");
+  if (SERDEBUG) Serial.println(" Got the time from NTP");
   // Now we can set the real timezone
   setTimezone(timezone);
 }
@@ -244,28 +283,31 @@ void printLocalTime(){
   if (!getLocalTime(&timeinfo)) {
     return;
   }
-  if (bSerialDebug) Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S zone %Z %z ");
+  if (SERDEBUG) Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S zone %Z %z ");
 }
 
 void startWifi(){
   WiFi.begin(ssid, password);
-  //if (bSerialDebug) Serial.println("Connecting Wifi");
-  //DisplayScrollingString(green, "Connecting Wifi");
+
   while (WiFi.status() != WL_CONNECTED) {
-    //DisplayScrollingString(green, ".");
-    //delay(500);
+    Serial.println("Recherche WIFI......");
+    delay(500);
   }
+
   Serial.print("Wifi RSSI=");
   Serial.println(WiFi.RSSI());
   long rssi = WiFi.RSSI();
   Serial.println("");
   Serial.println(WiFi.localIP());
   sLocalIP = WiFi.localIP().toString();
+
+  strcpy(sLoad.sTimeStp, "No Time");
+  strcpy(sLoad.sMess, WiFi.localIP().toString().c_str());
+  fnFiFoLoad(sLoad);
 }
 
 void setTime(int yr, int month, int mday, int hr, int minute, int sec, int isDst){
   struct tm tm;
-
   tm.tm_year = yr - 1900;   // Set date
   tm.tm_mon = month-1;
   tm.tm_mday = mday;
@@ -274,22 +316,22 @@ void setTime(int yr, int month, int mday, int hr, int minute, int sec, int isDst
   tm.tm_sec = sec;
   tm.tm_isdst = isDst;  // 1 or 0
   time_t t = mktime(&tm);
-  if (bSerialDebug) Serial.printf("Setting time: %s", asctime(&tm));
+  if (SERDEBUG) Serial.printf("Setting time: %s", asctime(&tm));
   struct timeval now = { .tv_sec = t };
   settimeofday(&now, NULL);
 }
 
 void setup() {  
-  if (bSerialDebug) Serial.begin(115200);
+  Serial.begin(115200);
 
   startWifi();
-  //FadeString(amber, "Sync NTP");
+  
   initTime("CET-1CEST,M3.5.0,M10.5.0/3");   // Set for Paris/FR
 
   matrix.begin();
   matrix.setTextWrap(false);
   matrix.setBrightness(20);
-  matrix.setTextColor(matrix.Color(50,0,100));
+  matrix.setTextColor(matrix.Color(50,0,100)); //BGR
 
   mb.client();
   time1_now = millis();
@@ -298,6 +340,9 @@ void setup() {
 int x    = matrix.width();
 int pass = 0;
 uint16_t MbResult = 0;
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void loop() {
 
@@ -316,40 +361,41 @@ void loop() {
 
       sPrintShortdate = (String(timeinfo.tm_mday).length() > 1 ? String(timeinfo.tm_mday) : "0" + String(timeinfo.tm_mday)) + "/" + (String(timeinfo.tm_mon+1).length() > 1 ? String(timeinfo.tm_mon+1) : "0" + String(timeinfo.tm_mon+1));
 
-      //if (bSerialDebug) Serial.println(sPrintdate);
+      if (SERDEBUG) Serial.println("Date: " + sPrintdate);
       i = timeinfo.tm_min % 2;
-  }
 
- // sPrintdate = (String(timeinfo.tm_mday).length() > 1 ? String(timeinfo.tm_mday) : "0" + String(timeinfo.tm_mday)) + "/" + (String(timeinfo.tm_mon+1).length() > 1 ? String(timeinfo.tm_mon+1) : "0" + String(timeinfo.tm_mon+1))+ "/" + String(timeinfo.tm_year+1900);
+      strcpy(sLoad.sTimeStp, sPrintClock.c_str());
+      strcpy(sLoad.sMess, sPrintShortdate.c_str());
+      fnFiFoLoad(sLoad);
+  }
 
   matrix.fillScreen(0);
   matrix.setCursor(x, 0);
-  //sPrintToMatrix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-  // On n'affiche plus l'adresse IP après 10s
-  if (millis() - time1_now >= 10000) {
-    sLocalIP = "";
+  if (millis() - readMillis >= maxDisplacement * MATRIXSPEED) { //1 second spacing for read
+    readMillis = millis();
+    strMesFiFoOut = fnFiFoUnload();
+    sPrintToMatrix = String(strMesFiFoOut.sTimeStp) + " " + String(strMesFiFoOut.sMess);
+    maxDisplacement = sPrintToMatrix.length() * pixelPerChar;
+    if (SERDEBUG) {
+      Serial.println("Pos= " + String(FiFoPos));
+      Serial.println("printTomatrix: " + sPrintToMatrix);
+      Serial.println("maxDisplacement: " + String(maxDisplacement));
+    }
   }
-
-  sPrintToMatrix =sLocalIP + " " + sPrintShortdate + " " + sPrintClock + " " + sTempExt + sTrend;
-
-  //if (bSerialDebug) Serial.println(sPrintToMatrix);
+  
   matrix.print(sPrintToMatrix);
 
-  //maxDisplacement = sPrintToMatrix.length() * pixelPerChar + matrix.width();
-  maxDisplacement = sPrintToMatrix.length() * pixelPerChar;
   if (--x < -maxDisplacement) {
     x = matrix.width();
     if (++pass >= 3) pass = 0;
     //matrix.setBrightness(50);
     //matrix.setTextColor(colors[pass]);
-    matrix.setTextColor(matrix.Color(100,0,100));
-    //matrix.setBrightness(10);
+    //matrix.setTextColor(matrix.Color(100, 0, 100));
   }
 
   matrix.show();
-  //timeloop(70);
-  delay(50);
+  delay(MATRIXSPEED);
   
   ReadModbus();
 }
