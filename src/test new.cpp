@@ -50,8 +50,9 @@ const uint16_t colors[] = { matrix.Color(255, 0, 0), matrix.Color(0, 255, 0), ma
 String sPrintToMatrix;
 #define MATRIXSPEED 50
 #define FIFOSIZE 20
-#define SERDEBUG true
+#define SERDEBUG false
 
+int x= 150;
 unsigned long readMillis;
 unsigned long prevmillis = 0; //used to hold previous value of currmillis
 unsigned long prevmillis1 = 0; //used to hold previous value of currmillis
@@ -92,8 +93,6 @@ uint8_t show = NUM_REGS;  // Counter for displaying values
 uint32_t LastModbusRequest = 0;  // Variable to track the last Modbus request time
 float rTempExt;
 
-int x;
-int pass = 0;
 uint16_t MbResult = 0;
 
 struct strMessage {
@@ -104,6 +103,10 @@ struct strMessage {
 strMessage strMesFiFoOut;
 strMessage sLoad;
 byte FiFoPos;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+//                         FIN DES DECLARATIONS 
+/////////////////////////////////////////////////////////////////////////////////////////////////
 
 strMessage fnFiFoUnload (){
   if (FiFoPos > 0) {
@@ -158,37 +161,28 @@ float fnAverage(float fInput) { /* function fnAverage */
   }
 }
 
-void ShowMatrix () {
-  x= matrix.width();
+void ShowMatrix() {
   matrix.fillScreen(0);
   matrix.setCursor(x, 0);
 
-  if (millis() - readMillis >= maxDisplacement * MATRIXSPEED) { //1 second spacing for read
-    readMillis = millis();
+  if (--x < -maxDisplacement) {
+    //matrix.setBrightness(50);
+    //matrix.setTextColor(matrix.Color(100, 0, 100));  //GRB
     strMesFiFoOut = fnFiFoUnload();
     sPrintToMatrix = String(strMesFiFoOut.sTimeStp) + " " + String(strMesFiFoOut.sMess);
     maxDisplacement = sPrintToMatrix.length() * pixelPerChar;
+    //matrix.print(sPrintToMatrix);
+    x = matrix.width();
     if (SERDEBUG) {
       Serial.println("Pos= " + String(FiFoPos));
       Serial.println("printTomatrix: " + sPrintToMatrix);
       Serial.println("maxDisplacement: " + String(maxDisplacement));
     }
   }
-  
   matrix.print(sPrintToMatrix);
-
-  if (--x < -maxDisplacement) {
-    x = matrix.width();
-    if (++pass >= 3) pass = 0;
-    //matrix.setBrightness(50);
-    //matrix.setTextColor(colors[pass]);
-    //matrix.setTextColor(matrix.Color(0, 0, 255));  //GRB
-  }
-
   matrix.show();
   delay(MATRIXSPEED);
 }
-
 
 void ReadModbus() {
   mb.task();
@@ -327,6 +321,10 @@ void startWifi(){
 
   while (WiFi.status() != WL_CONNECTED) {
     Serial.println("Recherche WIFI......");
+    strcpy(sLoad.sTimeStp, "");
+    strcpy(sLoad.sMess, "Recherche WIFI...");
+    fnFiFoLoad(sLoad);
+    ShowMatrix();
     delay(500);
   }
 
@@ -337,9 +335,10 @@ void startWifi(){
   Serial.println(WiFi.localIP());
   sLocalIP = WiFi.localIP().toString();
 
-  strcpy(sLoad.sTimeStp, "No Time");
+  strcpy(sLoad.sTimeStp, "Adr. IP: ");
   strcpy(sLoad.sMess, WiFi.localIP().toString().c_str());
   fnFiFoLoad(sLoad);
+  ShowMatrix();
 }
 
 void setTime(int yr, int month, int mday, int hr, int minute, int sec, int isDst){
@@ -360,19 +359,18 @@ void setTime(int yr, int month, int mday, int hr, int minute, int sec, int isDst
 void setup() {  
   Serial.begin(115200);
 
+  matrix.begin();
+  matrix.setTextWrap(false);
+  matrix.setBrightness(40);
+  matrix.setTextColor(matrix.Color(50,0,100)); //BGR
+
   startWifi();
   
   initTime("CET-1CEST,M3.5.0,M10.5.0/3");   // Set for Paris/FR
 
-  matrix.begin();
-  matrix.setTextWrap(false);
-  matrix.setBrightness(20);
-  matrix.setTextColor(matrix.Color(50,0,100)); //BGR
-
   mb.client();
   time1_now = millis();
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -401,7 +399,6 @@ void loop() {
       fnFiFoLoad(sLoad);
   }
 
-  ShowMatrix();
   ReadModbus();
-
+  ShowMatrix();
 }
