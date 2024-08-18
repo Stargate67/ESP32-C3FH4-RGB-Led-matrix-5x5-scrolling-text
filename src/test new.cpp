@@ -50,7 +50,7 @@ const uint16_t colors[] = { matrix.Color(255, 0, 0), matrix.Color(0, 255, 0), ma
 String sPrintToMatrix;
 #define MATRIXSPEED 50
 #define FIFOSIZE 20
-#define SERDEBUG false
+#define SERDEBUG true
 
 unsigned long readMillis;
 unsigned long prevmillis = 0; //used to hold previous value of currmillis
@@ -59,7 +59,7 @@ int timer = 0;     //used in the delay function, difference between currmillis a
 int i;
 struct tm timeinfo;
 int  pixelPerChar = 6;
-int  maxDisplacement = 300;
+int  maxDisplacement = 500;
 int iState = 0;
 String sPrintdate;
 String sPrintShortdate;
@@ -91,6 +91,10 @@ uint16_t MBresult[NUM_REGS];
 uint8_t show = NUM_REGS;  // Counter for displaying values
 uint32_t LastModbusRequest = 0;  // Variable to track the last Modbus request time
 float rTempExt;
+
+int x;
+int pass = 0;
+uint16_t MbResult = 0;
 
 struct strMessage {
   char sTimeStp[20];
@@ -154,6 +158,38 @@ float fnAverage(float fInput) { /* function fnAverage */
   }
 }
 
+void ShowMatrix () {
+  x= matrix.width();
+  matrix.fillScreen(0);
+  matrix.setCursor(x, 0);
+
+  if (millis() - readMillis >= maxDisplacement * MATRIXSPEED) { //1 second spacing for read
+    readMillis = millis();
+    strMesFiFoOut = fnFiFoUnload();
+    sPrintToMatrix = String(strMesFiFoOut.sTimeStp) + " " + String(strMesFiFoOut.sMess);
+    maxDisplacement = sPrintToMatrix.length() * pixelPerChar;
+    if (SERDEBUG) {
+      Serial.println("Pos= " + String(FiFoPos));
+      Serial.println("printTomatrix: " + sPrintToMatrix);
+      Serial.println("maxDisplacement: " + String(maxDisplacement));
+    }
+  }
+  
+  matrix.print(sPrintToMatrix);
+
+  if (--x < -maxDisplacement) {
+    x = matrix.width();
+    if (++pass >= 3) pass = 0;
+    //matrix.setBrightness(50);
+    //matrix.setTextColor(colors[pass]);
+    //matrix.setTextColor(matrix.Color(0, 0, 255));  //GRB
+  }
+
+  matrix.show();
+  delay(MATRIXSPEED);
+}
+
+
 void ReadModbus() {
   mb.task();
   if (mb.isConnected(MBremote)) {  
@@ -188,11 +224,11 @@ void ReadModbus() {
         // Calcul la moyenne 
         rAvgTempExt = round(fnAverage(rTempExt) * 100.0) / 100.0;
 
-        matrix.setTextColor(matrix.Color(50, 0, 100)); //RGB
+        matrix.setTextColor(matrix.Color(50, 0, 100)); //GRB
         if (rTempExt >= 26.0 ) {
-            matrix.setTextColor(matrix.Color(255, 100, 0)); //RGB
+            matrix.setTextColor(matrix.Color(125, 255, 0)); //GRB
         } else if (rTempExt >= 30.0){
-            matrix.setTextColor(matrix.Color(255, 0, 0)); //RGB
+            matrix.setTextColor(matrix.Color(0, 255, 0)); //GRB
         }
 
         sTrend = String(" =");
@@ -337,10 +373,6 @@ void setup() {
   time1_now = millis();
 }
 
-int x    = matrix.width();
-int pass = 0;
-uint16_t MbResult = 0;
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -369,33 +401,7 @@ void loop() {
       fnFiFoLoad(sLoad);
   }
 
-  matrix.fillScreen(0);
-  matrix.setCursor(x, 0);
-
-  if (millis() - readMillis >= maxDisplacement * MATRIXSPEED) { //1 second spacing for read
-    readMillis = millis();
-    strMesFiFoOut = fnFiFoUnload();
-    sPrintToMatrix = String(strMesFiFoOut.sTimeStp) + " " + String(strMesFiFoOut.sMess);
-    maxDisplacement = sPrintToMatrix.length() * pixelPerChar;
-    if (SERDEBUG) {
-      Serial.println("Pos= " + String(FiFoPos));
-      Serial.println("printTomatrix: " + sPrintToMatrix);
-      Serial.println("maxDisplacement: " + String(maxDisplacement));
-    }
-  }
-  
-  matrix.print(sPrintToMatrix);
-
-  if (--x < -maxDisplacement) {
-    x = matrix.width();
-    if (++pass >= 3) pass = 0;
-    //matrix.setBrightness(50);
-    //matrix.setTextColor(colors[pass]);
-    //matrix.setTextColor(matrix.Color(100, 0, 100));
-  }
-
-  matrix.show();
-  delay(MATRIXSPEED);
-  
+  ShowMatrix();
   ReadModbus();
+
 }
